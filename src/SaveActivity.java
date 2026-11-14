@@ -50,9 +50,11 @@ public final class SaveActivity extends Activity {
     private boolean downloading;
     private Uri saved;
     private Link current;
+    private YouTube youtube;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
+        youtube = new YouTube(getApplicationContext());
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
         scroll.setBackgroundColor(PAPER);
@@ -131,10 +133,10 @@ public final class SaveActivity extends Activity {
         current = value == null ? null : parseLink(value.toString());
         if (current != null) start();
         else if (Intent.ACTION_SEND.equals(getIntent().getAction()))
-            show("链接无法识别", "找不到 X 帖子链接", "请从 X 的视频帖子点「分享」→「Share via…」→「ClipHarbor」。");
+            show("链接无法识别", "找不到视频链接", "请从 X 或 YouTube 的视频页面分享到 ClipHarbor。");
         else {
-            show("X 视频下载", "把想看的视频\n存到手机", "在 X 打开公开视频帖子，点「分享」→「Share via…」，再选择 ClipHarbor。");
-            TextView note = label("视频存到 Movies/X Save Video。\n解析链接时，FxTwitter 会收到帖子编号。", 13, MUTED);
+            show("X 与 YouTube", "把想看的视频\n存到手机", "打开公开视频，点「分享」，再选择 ClipHarbor。在 X 里先点「Share via…」。");
+            TextView note = label("视频存到 Movies/X Save Video。\n解析 X 链接时，FxTwitter 会收到帖子编号。", 13, MUTED);
             note.setLineSpacing(dp(4), 1);
             add(box, note, 20);
         }
@@ -179,7 +181,7 @@ public final class SaveActivity extends Activity {
         downloading = true;
         cancelled = false;
         saved = null;
-        show("正在解析", "查找视频…", "正在读取公开帖子的媒体信息。");
+        show("正在解析", "查找视频…", current.youtube ? "正在向 YouTube 请求视频。" : "正在读取公开帖子的媒体信息。");
         action.setVisibility(View.GONE);
         close.setText("取消");
         progress.setVisibility(View.VISIBLE);
@@ -187,17 +189,22 @@ public final class SaveActivity extends Activity {
         new Thread(() -> {
             int done = 0;
             try {
-                List<String> urls = resolve(current);
-                for (int i = 0; i < urls.size(); i++) {
-                    checkCancelled();
-                    int part = i + 1;
-                    update(() -> {
-                        show("正在保存", "下载视频…", "第 " + part + " / " + urls.size() + " 个视频");
-                        progress.setIndeterminate(true);
-                    });
-                    int fileIndex = current.index == 0 ? part : current.index;
-                    saved = store(urls.get(i), "X_" + current.id + "_" + fileIndex + ".mp4");
-                    done++;
+                if (current.youtube) {
+                    saved = downloadYouTube(current.id);
+                    done = 1;
+                } else {
+                    List<String> urls = resolve(current);
+                    for (int i = 0; i < urls.size(); i++) {
+                        checkCancelled();
+                        int part = i + 1;
+                        update(() -> {
+                            show("正在保存", "下载视频…", "第 " + part + " / " + urls.size() + " 个视频");
+                            progress.setIndeterminate(true);
+                        });
+                        int fileIndex = current.index == 0 ? part : current.index;
+                        saved = store(urls.get(i), "X_" + current.id + "_" + fileIndex + ".mp4");
+                        done++;
+                    }
                 }
                 int count = done;
                 update(() -> {
@@ -207,7 +214,8 @@ public final class SaveActivity extends Activity {
                 });
             } catch (Exception e) {
                 int count = done;
-                String reason = e instanceof UserError ? e.getMessage() : "连接或写入失败。请检查网络、VPN 和手机存储空间。";
+                String reason = e instanceof UserError || e instanceof YouTube.DownloadError
+                    ? e.getMessage() : "连接或写入失败。请检查网络、VPN 和手机存储空间。";
                 update(() -> {
                     finishProgress();
                     show(count > 0 ? "部分视频已保存" : "下载失败", "下载未完成",
@@ -217,6 +225,28 @@ public final class SaveActivity extends Activity {
                 });
             }
         }, "x-save-download").start();
+    }
+    private Uri downloadYouTube(String id) throws Exception {
+        File directory = java.nio.file.Files.createTempDirectory(getCacheDir().toPath(), "youtube-").toFile();
+        File video = new File(directory, "video.mp4");
+        try {
+            youtube.download(id, video, () -> cancelled, percent -> update(() -> {
+                show("正在保存", "下载视频…", "YouTube · " + percent + "%");
+                progress.setIndeterminate(false);
+                progress.setProgress(percent);
+            }));
+            update(() -> {
+                show("正在保存", "写入相册…", "正在检查并保存 MP4。");
+                progress.setIndeterminate(true);
+            });
+            try (InputStream input = new BufferedInputStream(new FileInputStream(video))) {
+                return saveMp4(input, video.length(), "YT_" + id + ".mp4", true);
+            }
+        } finally {
+            File[] files = directory.listFiles();
+            if (files != null) for (File file : files) file.delete();
+            directory.delete();
+        }
     }
     private void finishProgress() {
         downloading = false; progress.setVisibility(View.GONE); close.setText("关闭");
@@ -235,14 +265,15 @@ public final class SaveActivity extends Activity {
     }
     @Override protected void onDestroy() {
         cancelled = true;
+        youtube.cancel();
         HttpURLConnection c = active;
         if (c != null) new Thread(c::disconnect, "x-save-cancel").start();
         super.onDestroy();
     }
 
     private static final class Link {
-        final String id; final int index;
-        Link(String id, int index) { this.id = id; this.index = index; }
+        final String id; final int index; final boolean youtube;
+        Link(String id, int index, boolean youtube) { this.id = id; this.index = index; this.youtube = youtube; }
     }
     private static Link parseLink(String text) {
         Matcher m = URL.matcher(text);
@@ -250,9 +281,12 @@ public final class SaveActivity extends Activity {
             try {
                 URI uri = URI.create(m.group().replaceFirst("[)\\]}>.,;!，。！？）]+$", ""));
                 String host = uri.getHost();
-                if (host == null || !HOSTS.contains(host.toLowerCase(Locale.ROOT)) || uri.getUserInfo() != null) continue;
+                if (host == null || uri.getUserInfo() != null) continue;
+                String youtubeId = YouTube.videoId(uri);
+                if (youtubeId != null) return new Link(youtubeId, 0, true);
+                if (!HOSTS.contains(host.toLowerCase(Locale.ROOT))) continue;
                 Matcher p = POST.matcher(uri.getPath());
-                if (p.matches()) return new Link(p.group(1), p.group(2) == null ? 0 : Integer.parseInt(p.group(2)));
+                if (p.matches()) return new Link(p.group(1), p.group(2) == null ? 0 : Integer.parseInt(p.group(2)), false);
             } catch (IllegalArgumentException ignored) {}
         }
         return null;
@@ -355,48 +389,55 @@ public final class SaveActivity extends Activity {
 
     private Uri store(String url, String filename) throws Exception {
         HttpURLConnection c = open(url, "video/mp4, application/octet-stream");
-        Uri item = null;
-        boolean published = false;
         try {
             int code = c.getResponseCode();
             if (code != 200) throw new UserError("视频服务器没有返回完整文件（HTTP " + code + "）。");
-            long length = c.getContentLengthLong();
             try (InputStream in = new BufferedInputStream(c.getInputStream(), 65536)) {
-                byte[] head = new byte[8];
-                new DataInputStream(in).readFully(head);
-                if (head[4] != 'f' || head[5] != 't' || head[6] != 'y' || head[7] != 'p')
-                    throw new UserError("服务器返回的内容不是可保存的 MP4。");
-                checkCancelled();
-                ContentValues values = new ContentValues();
-                values.put(MediaStore.Video.Media.DISPLAY_NAME, filename);
-                values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
-                values.put(MediaStore.Video.Media.RELATIVE_PATH, ALBUM);
-                values.put(MediaStore.Video.Media.IS_PENDING, 1);
-                item = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
-                if (item == null) throw new UserError("无法在相册中创建视频文件。");
-                try (OutputStream out = getContentResolver().openOutputStream(item, "w")) {
-                    if (out == null) throw new IOException("no output");
-                    out.write(head);
-                    byte[] buffer = new byte[65536];
-                    long transferred = head.length;
-                    int last = -1;
-                    for (int n; (n = in.read(buffer)) != -1;) {
-                        checkCancelled();
-                        out.write(buffer, 0, n);
-                        transferred += n;
-                        if (length > 0) {
-                            int pct = (int) Math.min(100, transferred * 100 / length);
-                            if (pct != last) {
-                                last = pct;
-                                update(() -> { progress.setIndeterminate(false); progress.setProgress(pct); });
-                            }
+                return saveMp4(in, c.getContentLengthLong(), filename, false);
+            }
+        } finally { release(c); }
+    }
+
+    private Uri saveMp4(InputStream in, long length, String filename, boolean requireAudio) throws Exception {
+        Uri item = null;
+        boolean published = false;
+        try {
+            byte[] head = new byte[8];
+            new DataInputStream(in).readFully(head);
+            if (head[4] != 'f' || head[5] != 't' || head[6] != 'y' || head[7] != 'p')
+                throw new UserError("服务器返回的内容不是可保存的 MP4。");
+            checkCancelled();
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Video.Media.DISPLAY_NAME, filename);
+            values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
+            values.put(MediaStore.Video.Media.RELATIVE_PATH, ALBUM);
+            values.put(MediaStore.Video.Media.IS_PENDING, 1);
+            item = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
+            if (item == null) throw new UserError("无法在相册中创建视频文件。");
+            try (OutputStream out = getContentResolver().openOutputStream(item, "w")) {
+                if (out == null) throw new IOException("no output");
+                out.write(head);
+                byte[] buffer = new byte[65536];
+                long transferred = head.length;
+                int last = -1;
+                for (int n; (n = in.read(buffer)) != -1;) {
+                    checkCancelled();
+                    out.write(buffer, 0, n);
+                    transferred += n;
+                    if (!requireAudio && length > 0) {
+                        int pct = (int) Math.min(100, transferred * 100 / length);
+                        if (pct != last) {
+                            last = pct;
+                            update(() -> { progress.setIndeterminate(false); progress.setProgress(pct); });
                         }
                     }
-                    if (length > 0 && transferred != length) throw new UserError("下载中断，视频文件没有保存。");
                 }
+                if (length > 0 && transferred != length) throw new UserError("下载中断，视频文件没有保存。");
             }
             checkCancelled();
-            if (!hasVideoFrames(item)) throw new UserError("下载到的文件没有可播放的视频轨。");
+            if (!hasPlayableTracks(item, requireAudio)) throw new UserError(requireAudio
+                ? "下载的 MP4 缺少可播放的视频或音频。"
+                : "下载到的文件没有可播放的视频轨。");
             checkCancelled();
             ContentValues ready = new ContentValues();
             ready.put(MediaStore.Video.Media.IS_PENDING, 0);
@@ -404,20 +445,26 @@ public final class SaveActivity extends Activity {
             published = true;
             return item;
         } finally {
-            release(c);
             if (!published && item != null) getContentResolver().delete(item, null, null);
         }
     }
-    private boolean hasVideoFrames(Uri uri) {
+    private boolean hasPlayableTracks(Uri uri, boolean requireAudio) {
         android.media.MediaExtractor extractor = new android.media.MediaExtractor();
         try {
             extractor.setDataSource(this, uri, null);
+            boolean video = false;
+            boolean audio = false;
             for (int i = 0; i < extractor.getTrackCount(); i++) {
                 String mime = extractor.getTrackFormat(i).getString(android.media.MediaFormat.KEY_MIME);
-                if (mime != null && mime.startsWith("video/")) {
-                    extractor.selectTrack(i);
-                    return extractor.getSampleSize() > 0;
+                if (mime == null || (!mime.startsWith("video/") && !mime.startsWith("audio/"))) continue;
+                extractor.selectTrack(i);
+                extractor.seekTo(0, android.media.MediaExtractor.SEEK_TO_CLOSEST_SYNC);
+                if (extractor.getSampleSize() > 0) {
+                    video |= mime.startsWith("video/");
+                    audio |= mime.startsWith("audio/");
                 }
+                extractor.unselectTrack(i);
+                if (video && (!requireAudio || audio)) return true;
             }
         } catch (IOException | RuntimeException ignored) {
         } finally { extractor.release(); }
