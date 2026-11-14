@@ -59,7 +59,7 @@ public final class SaveActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         setContentView(scroll);
 
-        TextView brand = label("SAVE VIDEO  /  X", 14, GREEN);
+        TextView brand = label("CLIPHARBOR", 14, GREEN);
         brand.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         brand.setLetterSpacing(.12f);
         box.addView(brand);
@@ -92,9 +92,9 @@ public final class SaveActivity extends Activity {
         current = value == null ? null : parseLink(value.toString());
         if (current != null) start();
         else if (Intent.ACTION_SEND.equals(getIntent().getAction()))
-            show("没有找到 X 帖子链接", "请在 X 的视频帖子里点「分享」→「Share via…」→「Save Video」。");
+            show("没有找到 X 帖子链接", "请在 X 的视频帖子里点「分享」→「Share via…」→「ClipHarbor」。");
         else
-            show("从 X 分享即可下载", "打开 X 的视频帖子，点「分享」→「Share via…」→「Save Video」。视频会保存到 Movies/X Save Video。"
+            show("从 X 分享即可下载", "打开 X 的视频帖子，点「分享」→「Share via…」→「ClipHarbor」。视频会保存到 Movies/X Save Video。"
                 + "\n\n仅支持可公开解析且提供 MP4 的帖子。解析时会向 FxTwitter 发送帖子编号，无需 X 账号或登录资料。");
     }
 
