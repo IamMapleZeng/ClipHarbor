@@ -2,10 +2,10 @@
 
 适用：Android 10 及以上的 arm64 手机。本版本使用 Android 系统分享菜单，不用 Root，也不用启用 LSPosed 模块。
 
-1. 安装 `ClipHarbor-1.3.apk`。
+1. 安装 `ClipHarbor-1.4.apk`。
 2. 打开 X 或 YouTube 的公开视频，点「分享」。在 X 里先点「Share via… / 通过…分享」。
 3. 在系统分享菜单里选 **ClipHarbor**（可能需要展开应用列表）。选择后自动下载。
-4. 完成后可点「播放视频」，或在相册、文件管理的 `Movies/X Save Video` 下查看。
+4. 完成后可点「播放视频」，也可在相册或文件管理中查看。X 视频保存到 `Movies/X Save Video`，YouTube 视频保存到 `Movies/YouTube Save Video`。
 5. 下载期间可切到别的应用；按返回或点「取消」会停止尚未完成的下载。
 
 支持 FxTwitter 能公开解析、并且 X 提供完整 MP4 的视频或 GIF。多个视频会依次保存。暂不支持受保护帖子、私信、直播、以及只有 HLS 流的帖子。

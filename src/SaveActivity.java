@@ -37,7 +37,8 @@ public final class SaveActivity extends Activity {
     private static final int CARD = 0xff092e2d;
     private static final int WHITE = 0xfff8fcf9;
     private static final int BORDER = 0xffd6ded6;
-    private static final String ALBUM = "Movies/X Save Video/";
+    private static final String X_ALBUM = "Movies/X Save Video";
+    private static final String YOUTUBE_ALBUM = "Movies/YouTube Save Video";
     private static final Pattern URL = Pattern.compile("https?://[^\\s<>\\p{Z}]+", Pattern.CASE_INSENSITIVE);
     private static final Pattern POST = Pattern.compile("/(?:[A-Za-z0-9_]{1,50}/status(?:es)?|i/(?:web/)?status)/([0-9]{1,25})(?:/video/([1-4]))?/?", Pattern.CASE_INSENSITIVE);
     private static final Pattern SIZE = Pattern.compile("/([0-9]{2,5})x([0-9]{2,5})/");
@@ -136,7 +137,8 @@ public final class SaveActivity extends Activity {
             show("链接无法识别", "找不到视频链接", "请从 X 或 YouTube 的视频页面分享到 ClipHarbor。");
         else {
             show("X 与 YouTube", "把想看的视频\n存到手机", "打开公开视频，点「分享」，再选择 ClipHarbor。在 X 里先点「Share via…」。");
-            TextView note = label("视频存到 Movies/X Save Video。\n解析 X 链接时，FxTwitter 会收到帖子编号。", 13, MUTED);
+            TextView note = label("X → " + X_ALBUM + "\nYouTube → " + YOUTUBE_ALBUM
+                + "\n解析 X 链接时，FxTwitter 会收到帖子编号。", 13, MUTED);
             note.setLineSpacing(dp(4), 1);
             add(box, note, 20);
         }
@@ -209,7 +211,7 @@ public final class SaveActivity extends Activity {
                 int count = done;
                 update(() -> {
                     finishProgress();
-                    show("下载完成", "已保存 " + count + " 个视频", "Movies/X Save Video\n也可以在相册中查找。");
+                    show("下载完成", "已保存 " + count + " 个视频", current.album() + "\n也可以在相册中查找。");
                     button("播放" + (count > 1 ? "最后一个视频" : "视频"), this::play);
                 });
             } catch (Exception e) {
@@ -260,7 +262,7 @@ public final class SaveActivity extends Activity {
             startActivity(new Intent(Intent.ACTION_VIEW).setDataAndType(saved, "video/mp4")
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION));
         } catch (android.content.ActivityNotFoundException e) {
-            detail.setText("请在相册或文件管理器中播放。\n保存位置：Movies/X Save Video");
+            detail.setText("请在相册或文件管理器中播放。\n保存位置：" + current.album());
         }
     }
     @Override protected void onDestroy() {
@@ -274,6 +276,7 @@ public final class SaveActivity extends Activity {
     private static final class Link {
         final String id; final int index; final boolean youtube;
         Link(String id, int index, boolean youtube) { this.id = id; this.index = index; this.youtube = youtube; }
+        String album() { return youtube ? YOUTUBE_ALBUM : X_ALBUM; }
     }
     private static Link parseLink(String text) {
         Matcher m = URL.matcher(text);
@@ -410,7 +413,7 @@ public final class SaveActivity extends Activity {
             ContentValues values = new ContentValues();
             values.put(MediaStore.Video.Media.DISPLAY_NAME, filename);
             values.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
-            values.put(MediaStore.Video.Media.RELATIVE_PATH, ALBUM);
+            values.put(MediaStore.Video.Media.RELATIVE_PATH, current.album() + "/");
             values.put(MediaStore.Video.Media.IS_PENDING, 1);
             item = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
             if (item == null) throw new UserError("无法在相册中创建视频文件。");
