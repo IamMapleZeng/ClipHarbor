@@ -1,6 +1,8 @@
 package local.codex.xsavevideo;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.res.ColorStateList;
@@ -42,6 +44,7 @@ public final class SaveActivity extends Activity {
     private static final int BORDER = 0xffd6ded6;
     private static final String X_ALBUM = "Movies/X Save Video";
     private static final String YOUTUBE_ALBUM = "Movies/YouTube Save Video";
+    private static final String REDNOTE_ALBUM = "Movies/RedNote Save Video";
     private static final String DOUYIN_ALBUM = "Movies/Douyin Save Video";
     private static final Pattern URL = Pattern.compile("https?://[^\\s<>\\p{Z}]+", Pattern.CASE_INSENSITIVE);
     private static final Pattern POST = Pattern.compile("/(?:[A-Za-z0-9_]{1,50}/status(?:es)?|i/(?:web/)?status)/([0-9]{1,25})(?:/video/([1-4]))?/?", Pattern.CASE_INSENSITIVE);
@@ -57,9 +60,8 @@ public final class SaveActivity extends Activity {
     private Link current;
     private YouTube youtube;
     private FrameLayout root;
-    private EditText douyinInput;
-    private Button douyinButton;
-    private Button selectAllButton, clearButton;
+    private final List<View> formControls = new ArrayList<>();
+    private EditText activeEditor;
     private volatile Douyin douyin;
     private int keyboardHeight;
     private int scrollBeforeKeyboard;
@@ -112,7 +114,7 @@ public final class SaveActivity extends Activity {
                 @Override public void onLayoutChange(View v, int l, int t, int r, int b,
                                                        int oldL, int oldT, int oldR, int oldB) {
                     int height = b - t;
-                    if (douyinInput == null || !douyinInput.hasFocus() || r - l != oldR - oldL) {
+                    if (!isEditingLink() || r - l != oldR - oldL) {
                         fullHeight = height;
                     }
                     updateKeyboardScroll(scroll, Math.max(0, fullHeight - height));
@@ -173,84 +175,106 @@ public final class SaveActivity extends Activity {
         current = value == null ? null : parseLink(value.toString());
         if (current != null) start();
         else if (Intent.ACTION_SEND.equals(getIntent().getAction()))
-            show("链接无法识别", "找不到视频链接", "请从视频页面分享，或在下方粘贴抖音链接。");
+            show("链接无法识别", "找不到视频链接", "请从视频页面分享，或在下方粘贴抖音或小红书链接。");
         else {
             show("X 与 YouTube", "把想看的视频\n存到手机", "打开公开视频，点「分享」，再选择 ClipHarbor。在 X 里先点「Share via…」。");
             TextView note = label("X → " + X_ALBUM + "\nYouTube → " + YOUTUBE_ALBUM
-                + "\n抖音 → " + DOUYIN_ALBUM + "\n解析 X 链接时，FxTwitter 会收到帖子编号。", 13, MUTED);
+                + "\n抖音 → " + DOUYIN_ALBUM + "\n小红书 → " + REDNOTE_ALBUM + "\n解析 X 链接时，FxTwitter 会收到帖子编号。", 13, MUTED);
             note.setLineSpacing(dp(4), 1);
             add(box, note, 20);
         }
+        addLinkForm(box, scroll, "抖音", DOUYIN_ALBUM);
+        addLinkForm(box, scroll, "小红书", REDNOTE_ALBUM);
+        setFormEnabled(!downloading);
+    }
+
+    private boolean isEditingLink() {
+        return activeEditor != null && activeEditor.hasFocus();
+    }
+
+    private void addLinkForm(LinearLayout box, ScrollView scroll, String name, String album) {
         LinearLayout form = new LinearLayout(this);
         form.setOrientation(LinearLayout.VERTICAL);
         form.setPadding(dp(18), dp(16), dp(18), dp(18));
         form.setBackground(surface(WHITE, 24, BORDER));
-        TextView formTitle = label("抖音下载", 20, INK);
+        TextView formTitle = label(name + "下载", 20, INK);
         formTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         form.addView(formTitle);
-        douyinInput = new EditText(this);
-        douyinInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        douyinInput.setGravity(Gravity.TOP | Gravity.START);
-        douyinInput.setHint("粘贴抖音链接或整段分享文字");
-        douyinInput.setHintTextColor(MUTED);
-        douyinInput.setTextColor(INK);
-        douyinInput.setTextSize(15);
-        douyinInput.setMinLines(2);
-        douyinInput.setMaxLines(4);
-        douyinInput.setPadding(dp(14), dp(12), dp(14), dp(12));
-        douyinInput.setBackground(surface(PAPER, 14, BORDER));
-        add(form, douyinInput, 12);
-        LinearLayout editingActions = new LinearLayout(this);
-        selectAllButton = makeButton(PAPER, INK, BORDER);
-        selectAllButton.setText("全选");
-        selectAllButton.setOnClickListener(v -> {
-            douyinInput.requestFocus();
-            douyinInput.selectAll();
-            getSystemService(InputMethodManager.class).showSoftInput(douyinInput, InputMethodManager.SHOW_IMPLICIT);
+        EditText input = new EditText(this);
+        input.setOnFocusChangeListener((v, focused) -> {
+            if (focused) activeEditor = input;
         });
-        editingActions.addView(selectAllButton, new LinearLayout.LayoutParams(0, -2, 1));
-        clearButton = makeButton(PAPER, INK, BORDER);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        input.setGravity(Gravity.TOP | Gravity.START);
+        input.setHint("粘贴" + name + "链接或整段分享文字");
+        input.setHintTextColor(MUTED);
+        input.setTextColor(INK);
+        input.setTextSize(15);
+        input.setMinLines(2);
+        input.setMaxLines(4);
+        input.setPadding(dp(14), dp(12), dp(14), dp(12));
+        input.setBackground(surface(PAPER, 14, BORDER));
+        add(form, input, 12);
+        LinearLayout editingActions = new LinearLayout(this);
+        Button pasteButton = makeButton(PAPER, INK, BORDER);
+        pasteButton.setText("粘贴");
+        pasteButton.setOnClickListener(v -> pasteLink(input));
+        editingActions.addView(pasteButton, new LinearLayout.LayoutParams(0, -2, 1));
+        Button clearButton = makeButton(PAPER, INK, BORDER);
         clearButton.setText("清空");
         clearButton.setOnClickListener(v -> {
-            douyinInput.setError(null);
-            douyinInput.getText().clear();
+            input.setError(null);
+            input.getText().clear();
         });
         LinearLayout.LayoutParams clearLayout = new LinearLayout.LayoutParams(0, -2, 1);
         clearLayout.setMarginStart(dp(10));
         editingActions.addView(clearButton, clearLayout);
         add(form, editingActions, 10);
-        douyinButton = makeButton(MINT, INK, 0);
-        douyinButton.setText("下载抖音视频");
-        douyinButton.setOnClickListener(v -> {
+        Button downloadButton = makeButton(MINT, INK, 0);
+        downloadButton.setText("下载" + name + "视频");
+        downloadButton.setOnClickListener(v -> {
             if (downloading) return;
-            Link link = parseLink(douyinInput.getText().toString(), true);
+            Link link = parseLink(input.getText().toString(), album);
             if (link == null) {
-                douyinInput.setError("请粘贴有效的抖音视频链接");
+                input.setError("请粘贴有效的" + name + "视频链接");
                 return;
             }
-            getSystemService(InputMethodManager.class).hideSoftInputFromWindow(douyinInput.getWindowToken(), 0);
-            douyinInput.clearFocus();
+            getSystemService(InputMethodManager.class).hideSoftInputFromWindow(input.getWindowToken(), 0);
+            input.clearFocus();
             current = link;
             scrollBeforeKeyboard = 0;
             keyboardScrollTarget = null;
             scroll.smoothScrollTo(0, 0);
             start();
         });
-        add(form, douyinButton, 10);
+        add(form, downloadButton, 10);
         add(box, form, 20);
-        setFormEnabled(!downloading);
+        Collections.addAll(formControls, input, pasteButton, clearButton, downloadButton);
+    }
+
+    private void pasteLink(EditText input) {
+        ClipboardManager clipboard = getSystemService(ClipboardManager.class);
+        ClipData clip = clipboard == null ? null : clipboard.getPrimaryClip();
+        CharSequence text = clip == null || clip.getItemCount() == 0 ? null : clip.getItemAt(0).getText();
+        if (text == null || text.toString().trim().isEmpty()) {
+            android.widget.Toast.makeText(this, "请先复制视频链接或分享文字", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        input.setError(null);
+        input.setText(text.toString());
+        input.setSelection(input.length());
     }
 
     private void updateKeyboardScroll(ScrollView scroll, int height) {
         if (height == keyboardHeight) return;
         View content = scroll.getChildAt(0);
-        if (keyboardHeight == 0 && douyinInput != null && douyinInput.hasFocus()) {
+        if (keyboardHeight == 0 && isEditingLink()) {
             scrollBeforeKeyboard = scroll.getScrollY();
             // Preserve enough scroll range even when the form fits on the screen before editing.
             content.setMinimumHeight(content.getHeight());
         }
         keyboardHeight = height;
-        if (height == 0 || douyinInput != null && douyinInput.hasFocus()) {
+        if (height == 0 || isEditingLink()) {
             keyboardScrollTarget = scrollBeforeKeyboard + height;
         }
         if (height == 0) content.setMinimumHeight(0);
@@ -296,7 +320,8 @@ public final class SaveActivity extends Activity {
         cancelled = false;
         saved = null;
         setFormEnabled(false);
-        show("正在解析", "查找视频…", current.douyin ? "正在读取抖音视频。"
+        show("正在解析", "查找视频…", current.redNote() ? "正在读取小红书视频。"
+            : current.douyin ? "正在读取抖音视频。"
             : current.youtube ? "正在向 YouTube 请求视频。" : "正在读取公开帖子的媒体信息。");
         action.setVisibility(View.GONE);
         close.setText("取消");
@@ -305,7 +330,10 @@ public final class SaveActivity extends Activity {
         new Thread(() -> {
             int done = 0;
             try {
-                if (current.douyin) {
+                if (current.redNote()) {
+                    saved = downloadRedNote(current.id);
+                    done = 1;
+                } else if (current.douyin) {
                     saved = downloadDouyin(current);
                     done = 1;
                 } else if (current.youtube) {
@@ -393,12 +421,58 @@ public final class SaveActivity extends Activity {
         return store(source, "DY_" + id + ".mp4");
     }
 
+    private Uri downloadRedNote(String link) throws Exception {
+        URI note = URI.create(link);
+        for (int redirects = 0; redirects < 4 && RedNote.isShort(note); redirects++) {
+            HttpURLConnection c = open(note.toString(), "text/html");
+            try {
+                setRedNoteHeaders(c);
+                int code = c.getResponseCode();
+                String location = c.getHeaderField("Location");
+                if (code < 300 || code >= 400 || location == null) break;
+                note = note.resolve(location);
+                if (RedNote.isShort(note) && !"https".equals(note.getScheme())) break;
+            } finally { release(c); }
+        }
+        String id = RedNote.noteId(note);
+        if (id == null) throw new UserError("小红书链接已失效，或未指向可访问的笔记。");
+        HttpURLConnection c = open(RedNote.canonicalNote(note), "text/html");
+        List<String> videos;
+        try {
+            setRedNoteHeaders(c);
+            if (c.getResponseCode() != 200)
+                throw new UserError("小红书未返回笔记。请在小红书重新复制公开笔记的分享链接。");
+            try (InputStream input = c.getInputStream(); ByteArrayOutputStream page = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[8192];
+                for (int n; (n = input.read(buffer)) != -1;) {
+                    checkCancelled();
+                    if (page.size() + n > 4_000_000) throw new UserError("小红书笔记页面过大。");
+                    page.write(buffer, 0, n);
+                }
+                videos = RedNote.videoUrls(new String(page.toByteArray(), StandardCharsets.UTF_8), id);
+            }
+        } catch (org.json.JSONException e) {
+            throw new UserError("小红书笔记数据无法读取。");
+        } finally { release(c); }
+        if (videos.isEmpty()) throw new UserError("这条笔记没有可下载的公开视频。图文笔记暂不支持。");
+        update(() -> show("正在保存", "下载视频…", "正在保存小红书视频到相册。"));
+        IOException failure = null;
+        for (String url : videos) {
+            checkCancelled();
+            try { return store(url, "XHS_" + id + ".mp4"); }
+            catch (IOException e) { failure = e; }
+        }
+        throw failure;
+    }
+
+    private void setRedNoteHeaders(HttpURLConnection c) {
+        c.setRequestProperty("User-Agent", RedNote.UA);
+        c.setRequestProperty("Referer", RedNote.SITE + "/");
+        c.setRequestProperty("Accept-Language", "zh-CN,zh;q=0.9");
+    }
+
     private void setFormEnabled(boolean enabled) {
-        if (douyinButton == null) return;
-        douyinButton.setEnabled(enabled);
-        douyinInput.setEnabled(enabled);
-        selectAllButton.setEnabled(enabled);
-        clearButton.setEnabled(enabled);
+        for (View control : formControls) control.setEnabled(enabled);
     }
     private void finishProgress() {
         downloading = false; progress.setVisibility(View.GONE); close.setText("关闭");
@@ -429,14 +503,26 @@ public final class SaveActivity extends Activity {
     private static final class Link {
         final String id; final int index; final boolean youtube; final boolean douyin;
         Link(String id, int index, boolean youtube, boolean douyin) {
-            this.id = id; this.index = index; this.youtube = youtube; this.douyin = douyin;
+            this(id, index, youtube, douyin, false);
         }
-        String album() { return douyin ? DOUYIN_ALBUM : youtube ? YOUTUBE_ALBUM : X_ALBUM; }
+        private Link(String id, int index, boolean youtube, boolean douyin, boolean redNote) {
+            this.id = id; this.index = index; this.youtube = youtube; this.douyin = douyin;
+            this.redNote = redNote;
+        }
+        final boolean redNote;
+        Link(String id) {
+            this(id, 0, false, false, true);
+        }
+        boolean redNote() { return redNote; }
+        String album() {
+            if (redNote()) return REDNOTE_ALBUM;
+            return douyin ? DOUYIN_ALBUM : youtube ? YOUTUBE_ALBUM : X_ALBUM;
+        }
     }
     private static Link parseLink(String text) {
-        return parseLink(text, false);
+        return parseLink(text, null);
     }
-    private static Link parseLink(String text, boolean douyinOnly) {
+    private static Link parseLink(String text, String album) {
         Matcher m = URL.matcher(text.replace("\\:", ":").replace("\\/", "/"));
         while (m.find()) {
             try {
@@ -445,8 +531,16 @@ public final class SaveActivity extends Activity {
                 if (host == null || uri.getUserInfo() != null) continue;
                 String dyId = Douyin.videoId(uri);
                 if (dyId == null) dyId = Douyin.shortCode(uri);
-                if (dyId != null) return new Link(dyId, 0, false, true);
-                if (douyinOnly) continue;
+                if (dyId != null && (album == null || DOUYIN_ALBUM.equals(album))) {
+                    return new Link(dyId, 0, false, true);
+                }
+                if (album == null || REDNOTE_ALBUM.equals(album)) {
+                    if (RedNote.isShort(uri)) {
+                        return new Link("https://" + host.toLowerCase(Locale.ROOT) + uri.getRawPath());
+                    }
+                    if (RedNote.noteId(uri) != null) return new Link(RedNote.canonicalNote(uri));
+                }
+                if (album != null) continue;
                 String youtubeId = YouTube.videoId(uri);
                 if (youtubeId != null) return new Link(youtubeId, 0, true, false);
                 if (!HOSTS.contains(host.toLowerCase(Locale.ROOT))) continue;
@@ -558,6 +652,8 @@ public final class SaveActivity extends Activity {
             if (current.douyin) {
                 c.setRequestProperty("User-Agent", Douyin.UA);
                 c.setRequestProperty("Referer", Douyin.PAGE + "/");
+            } else if (current.redNote()) {
+                setRedNoteHeaders(c);
             }
             int code = c.getResponseCode();
             if (code != 200) throw new UserError("视频服务器没有返回完整文件（HTTP " + code + "）。");
