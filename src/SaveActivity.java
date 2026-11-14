@@ -4,14 +4,19 @@ import android.app.Activity;
 import android.content.ContentValues;
 import android.content.Intent;
 import android.content.res.ColorStateList;
-import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
 import android.widget.Button;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -25,15 +30,19 @@ import java.util.*;
 import java.util.regex.*;
 
 public final class SaveActivity extends Activity {
-    private static final int GREEN = 0xff136649;
-    private static final int INK = 0xff12291f;
-    private static final int MUTED = 0xff40594e;
+    private static final int PAPER = 0xfff5f5ef;
+    private static final int INK = 0xff142622;
+    private static final int MUTED = 0xff54635c;
+    private static final int MINT = 0xffbcf7da;
+    private static final int CARD = 0xff092e2d;
+    private static final int WHITE = 0xfff8fcf9;
+    private static final int BORDER = 0xffd6ded6;
     private static final String ALBUM = "Movies/X Save Video/";
     private static final Pattern URL = Pattern.compile("https?://[^\\s<>\\p{Z}]+", Pattern.CASE_INSENSITIVE);
     private static final Pattern POST = Pattern.compile("/(?:[A-Za-z0-9_]{1,50}/status(?:es)?|i/(?:web/)?status)/([0-9]{1,25})(?:/video/([1-4]))?/?", Pattern.CASE_INSENSITIVE);
     private static final Pattern SIZE = Pattern.compile("/([0-9]{2,5})x([0-9]{2,5})/");
     private static final Set<String> HOSTS = new HashSet<>(Arrays.asList("x.com", "twitter.com", "www.x.com", "www.twitter.com", "mobile.twitter.com", "mobile.x.com"));
-    private TextView title, detail;
+    private TextView title, detail, status;
     private ProgressBar progress;
     private Button action, close;
     private volatile boolean cancelled;
@@ -46,56 +55,89 @@ public final class SaveActivity extends Activity {
         super.onCreate(state);
         ScrollView scroll = new ScrollView(this);
         scroll.setFillViewport(true);
-        scroll.setBackgroundColor(0xfff1f7f3);
+        scroll.setBackgroundColor(PAPER);
+        scroll.setClipToPadding(false);
+        FrameLayout content = new FrameLayout(this);
+        scroll.addView(content);
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(26), dp(26), dp(26), dp(26));
-        scroll.addView(box);
+        box.setPadding(dp(24), dp(24), dp(24), dp(24));
+        content.addView(box, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP | Gravity.CENTER_HORIZONTAL));
+        content.addOnLayoutChangeListener((v, l, t, r, b, oldL, oldT, oldR, oldB) -> {
+            int width = Math.min(r - l, dp(520));
+            if (width > 0 && box.getLayoutParams().width != width) {
+                box.getLayoutParams().width = width;
+                box.requestLayout();
+            }
+        });
         scroll.setOnApplyWindowInsetsListener((v, insets) -> {
-            android.graphics.Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            if (Build.VERSION.SDK_INT >= 30) {
+                android.graphics.Insets bars = insets.getInsets(
+                    WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+                v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+            } else {
+                v.setPadding(insets.getSystemWindowInsetLeft(), insets.getSystemWindowInsetTop(),
+                    insets.getSystemWindowInsetRight(), insets.getSystemWindowInsetBottom());
+            }
             return insets;
         });
+        getWindow().setStatusBarColor(PAPER);
+        getWindow().setNavigationBarColor(PAPER);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         setContentView(scroll);
 
-        TextView brand = label("CLIPHARBOR", 14, GREEN);
+        LinearLayout header = new LinearLayout(this);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView icon = new ImageView(this);
+        icon.setImageDrawable(getApplicationInfo().loadIcon(getPackageManager()));
+        header.addView(icon, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        TextView brand = label("ClipHarbor", 21, INK);
         brand.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        brand.setLetterSpacing(.12f);
-        box.addView(brand);
-        title = label("", 30, INK);
+        LinearLayout.LayoutParams brandLayout = new LinearLayout.LayoutParams(-2, -2);
+        brandLayout.setMarginStart(dp(12));
+        header.addView(brand, brandLayout);
+        box.addView(header);
+
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(24), dp(24), dp(24), dp(26));
+        panel.setBackground(surface(CARD, 26, 0));
+        add(box, panel, 32);
+        status = label("", 13, MINT);
+        status.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        panel.addView(status);
+        title = label("", 34, WHITE);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        add(box, title, 24);
-        detail = label("", 16, MUTED);
-        detail.setLineSpacing(dp(3), 1);
-        add(box, detail, 12);
+        add(panel, title, 12);
+        detail = label("", 15, 0xffd0e4dc);
+        detail.setLineSpacing(dp(5), 1);
+        add(panel, detail, 14);
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
-        progress.setProgressTintList(ColorStateList.valueOf(GREEN));
-        progress.setIndeterminateTintList(ColorStateList.valueOf(GREEN));
+        progress.setProgressTintList(ColorStateList.valueOf(MINT));
+        progress.setIndeterminateTintList(ColorStateList.valueOf(MINT));
+        progress.setProgressBackgroundTintList(ColorStateList.valueOf(0xff45625d));
         progress.setVisibility(View.GONE);
-        add(box, progress, 24);
-        action = new Button(this);
-        action.setBackgroundTintList(ColorStateList.valueOf(GREEN));
-        action.setTextColor(Color.WHITE);
-        action.setAllCaps(false);
+        add(panel, progress, 20);
+        action = makeButton(MINT, INK, 0);
         action.setVisibility(View.GONE);
         add(box, action, 20);
-        close = new Button(this);
+        close = makeButton(PAPER, MUTED, BORDER);
         close.setText("关闭");
-        close.setTextColor(INK);
-        close.setAllCaps(false);
         close.setOnClickListener(v -> finish());
-        add(box, close, 6);
+        add(box, close, 12);
 
         CharSequence value = Intent.ACTION_SEND.equals(getIntent().getAction())
             ? getIntent().getCharSequenceExtra(Intent.EXTRA_TEXT) : null;
         current = value == null ? null : parseLink(value.toString());
         if (current != null) start();
         else if (Intent.ACTION_SEND.equals(getIntent().getAction()))
-            show("没有找到 X 帖子链接", "请在 X 的视频帖子里点「分享」→「Share via…」→「ClipHarbor」。");
-        else
-            show("从 X 分享即可下载", "打开 X 的视频帖子，点「分享」→「Share via…」→「ClipHarbor」。视频会保存到 Movies/X Save Video。"
-                + "\n\n仅支持可公开解析且提供 MP4 的帖子。解析时会向 FxTwitter 发送帖子编号，无需 X 账号或登录资料。");
+            show("链接无法识别", "找不到 X 帖子链接", "请从 X 的视频帖子点「分享」→「Share via…」→「ClipHarbor」。");
+        else {
+            show("X 视频下载", "把想看的视频\n存到手机", "在 X 打开公开视频帖子，点「分享」→「Share via…」，再选择 ClipHarbor。");
+            TextView note = label("视频存到 Movies/X Save Video。\n解析链接时，FxTwitter 会收到帖子编号。", 13, MUTED);
+            note.setLineSpacing(dp(4), 1);
+            add(box, note, 20);
+        }
     }
 
     private int dp(int n) { return Math.round(n * getResources().getDisplayMetrics().density); }
@@ -106,7 +148,27 @@ public final class SaveActivity extends Activity {
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
         p.topMargin = dp(gap); box.addView(v, p);
     }
-    private void show(String heading, String message) {
+    private GradientDrawable surface(int fill, int radius, int border) {
+        GradientDrawable shape = new GradientDrawable();
+        shape.setColor(fill);
+        shape.setCornerRadius(dp(radius));
+        if (border != 0) shape.setStroke(dp(1), border);
+        return shape;
+    }
+    private Button makeButton(int fill, int ink, int border) {
+        Button button = new Button(this);
+        button.setBackground(new RippleDrawable(ColorStateList.valueOf(0x22092e2d),
+            surface(fill, 17, border), null));
+        button.setStateListAnimator(null);
+        button.setMinHeight(dp(52));
+        button.setPadding(dp(16), dp(10), dp(16), dp(10));
+        button.setTextColor(ink);
+        button.setTextSize(16);
+        button.setAllCaps(false);
+        return button;
+    }
+    private void show(String state, String heading, String message) {
+        status.setText(state);
         title.setText(heading); detail.setText(message);
     }
     private void button(String text, Runnable fun) {
@@ -117,7 +179,7 @@ public final class SaveActivity extends Activity {
         downloading = true;
         cancelled = false;
         saved = null;
-        show("正在查找视频…", "正在读取公开帖子的媒体信息。");
+        show("正在解析", "查找视频…", "正在读取公开帖子的媒体信息。");
         action.setVisibility(View.GONE);
         close.setText("取消");
         progress.setVisibility(View.VISIBLE);
@@ -130,7 +192,7 @@ public final class SaveActivity extends Activity {
                     checkCancelled();
                     int part = i + 1;
                     update(() -> {
-                        show("正在下载视频…", "第 " + part + " / " + urls.size() + " 个视频");
+                        show("正在保存", "下载视频…", "第 " + part + " / " + urls.size() + " 个视频");
                         progress.setIndeterminate(true);
                     });
                     int fileIndex = current.index == 0 ? part : current.index;
@@ -140,7 +202,7 @@ public final class SaveActivity extends Activity {
                 int count = done;
                 update(() -> {
                     finishProgress();
-                    show("已保存 " + count + " 个视频", "保存位置：Movies/X Save Video\n也可以在相册中查找。");
+                    show("下载完成", "已保存 " + count + " 个视频", "Movies/X Save Video\n也可以在相册中查找。");
                     button("播放" + (count > 1 ? "最后一个视频" : "视频"), this::play);
                 });
             } catch (Exception e) {
@@ -148,7 +210,8 @@ public final class SaveActivity extends Activity {
                 String reason = e instanceof UserError ? e.getMessage() : "连接或写入失败。请检查网络、VPN 和手机存储空间。";
                 update(() -> {
                     finishProgress();
-                    show("下载未完成", (count > 0 ? "已保存 " + count + " 个视频。\n" : "") + reason);
+                    show(count > 0 ? "部分视频已保存" : "下载失败", "下载未完成",
+                        (count > 0 ? "已保存 " + count + " 个视频。\n" : "") + reason);
                     if (count == 0) button("重试", this::start);
                     else button("播放已保存的视频", this::play);
                 });

@@ -2,7 +2,7 @@
 
 适用：Android 10 及以上。本版本使用 Android 系统分享菜单，不用 Root，也不用启用 LSPosed 模块。
 
-1. 安装 `ClipHarbor-1.1.apk`。
+1. 安装 `ClipHarbor-1.2.apk`。
 2. 打开 X 的公开视频帖子，点帖子的「分享」图标，再点「Share via… / 通过…分享」。
 3. 在系统分享菜单里选 **ClipHarbor**（可能需要展开应用列表）。选择后自动下载。
 4. 完成后可点「播放视频」，或在相册、文件管理的 `Movies/X Save Video` 下查看。
